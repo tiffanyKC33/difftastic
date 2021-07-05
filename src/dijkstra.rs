@@ -56,8 +56,8 @@ impl<'a> Eq for OrdVertex<'a> {}
 enum Edge {
     UnchangedNode,
     UnchangedDelimiter,
-    NovelAtomLHS,
-    NovelAtomRHS,
+    NovelAtomLHS { contiguous: bool },
+    NovelAtomRHS { contiguous: bool },
     NovelDelimiterLHS,
     NovelDelimiterRHS,
 }
@@ -70,7 +70,13 @@ impl Edge {
             // Matching an outer delimiter is good.
             UnchangedDelimiter => -1,
             // Otherwise, we've added/removed a node.
-            NovelAtomLHS | NovelAtomRHS => -2,
+            NovelAtomLHS { contiguous } | NovelAtomRHS { contiguous } => {
+                if *contiguous {
+                    -2
+                } else {
+                    -3
+                }
+            }
             NovelDelimiterLHS => -2,
             NovelDelimiterRHS => -2,
         }
@@ -206,7 +212,9 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
             // Step over this novel atom.
             Syntax::Atom { .. } => {
                 res.push((
-                    NovelAtomLHS,
+                    NovelAtomLHS {
+                        contiguous: v.lhs_prev_novel == lhs_syntax.first_line(),
+                    },
                     Vertex {
                         lhs_syntax: lhs_syntax.get_next(),
                         lhs_prev_novel: lhs_syntax.last_line(),
@@ -242,7 +250,9 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
             // Step over this novel atom.
             Syntax::Atom { .. } => {
                 res.push((
-                    NovelAtomRHS,
+                    NovelAtomRHS {
+                        contiguous: v.rhs_prev_novel == rhs_syntax.first_line(),
+                    },
                     Vertex {
                         lhs_syntax: v.lhs_syntax,
                         lhs_prev_novel: v.lhs_prev_novel,
@@ -417,7 +427,10 @@ mod tests {
         let route = shortest_path(start);
 
         let actions = route.iter().map(|(action, _)| *action).collect_vec();
-        assert_eq!(actions, vec![UnchangedDelimiter, NovelAtomLHS]);
+        assert_eq!(
+            actions,
+            vec![UnchangedDelimiter, NovelAtomLHS { contiguous: false }]
+        );
     }
 
     #[test]
@@ -458,7 +471,11 @@ mod tests {
         let actions = route.iter().map(|(action, _)| *action).collect_vec();
         assert_eq!(
             actions,
-            vec![UnchangedDelimiter, NovelAtomRHS, NovelAtomRHS]
+            vec![
+                UnchangedDelimiter,
+                NovelAtomRHS { contiguous: false },
+                NovelAtomRHS { contiguous: false }
+            ]
         );
     }
 
@@ -553,6 +570,13 @@ mod tests {
         let route = shortest_path(start);
 
         let actions = route.iter().map(|(action, _)| *action).collect_vec();
-        assert_eq!(actions, vec![NovelAtomLHS, NovelAtomLHS, UnchangedNode]);
+        assert_eq!(
+            actions,
+            vec![
+                UnchangedNode,
+                NovelAtomLHS { contiguous: false },
+                NovelAtomLHS { contiguous: true },
+            ]
+        );
     }
 }
