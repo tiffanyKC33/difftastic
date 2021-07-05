@@ -58,8 +58,8 @@ enum Edge {
     UnchangedDelimiter,
     NovelAtomLHS { contiguous: bool },
     NovelAtomRHS { contiguous: bool },
-    NovelDelimiterLHS,
-    NovelDelimiterRHS,
+    NovelDelimiterLHS { contiguous: bool },
+    NovelDelimiterRHS { contiguous: bool },
 }
 
 impl Edge {
@@ -77,8 +77,13 @@ impl Edge {
                     -3
                 }
             }
-            NovelDelimiterLHS => -2,
-            NovelDelimiterRHS => -2,
+            NovelDelimiterLHS { contiguous } | NovelDelimiterRHS { contiguous } => {
+                if *contiguous {
+                    -2
+                } else {
+                    -3
+                }
+            }
         }
     }
 }
@@ -225,18 +230,20 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
             }
             // Step into this partially/fully novel list.
             Syntax::List { children, .. } => {
-                let (lhs_next, lhs_prev_novel) = if children.is_empty() {
-                    (lhs_syntax.get_next(), v.lhs_prev_novel)
+                let lhs_next = if children.is_empty() {
+                    lhs_syntax.get_next()
                 } else {
                     // `lhs_prev_novel` only tracks nodes at the same level.
-                    (Some(children[0]), None)
+                    Some(children[0])
                 };
 
                 res.push((
-                    NovelDelimiterLHS,
+                    NovelDelimiterLHS {
+                        contiguous: v.lhs_prev_novel == lhs_syntax.first_line(),
+                    },
                     Vertex {
                         lhs_syntax: lhs_next,
-                        lhs_prev_novel,
+                        lhs_prev_novel: v.lhs_prev_novel,
                         rhs_syntax: v.rhs_syntax,
                         rhs_prev_novel: v.rhs_prev_novel,
                     },
@@ -263,20 +270,21 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
             }
             // Step into this partially/fully novel list.
             Syntax::List { children, .. } => {
-                let (rhs_next, rhs_prev_novel) = if children.is_empty() {
-                    (rhs_syntax.get_next(), v.rhs_prev_novel)
+                let rhs_next = if children.is_empty() {
+                    rhs_syntax.get_next()
                 } else {
-                    // `rhs_prev_novel` only tracks nodes at the same level.
-                    (Some(children[0]), None)
+                    Some(children[0])
                 };
 
                 res.push((
-                    NovelDelimiterRHS,
+                    NovelDelimiterRHS {
+                        contiguous: v.rhs_prev_novel == rhs_syntax.first_line(),
+                    },
                     Vertex {
                         lhs_syntax: v.lhs_syntax,
                         lhs_prev_novel: v.lhs_prev_novel,
                         rhs_syntax: rhs_next,
-                        rhs_prev_novel,
+                        rhs_prev_novel: v.rhs_prev_novel,
                     },
                 ));
             }
@@ -315,11 +323,11 @@ fn mark_route(route: &[(Edge, Vertex)]) {
                 lhs.set_change(ChangeKind::Unchanged(rhs));
                 rhs.set_change(ChangeKind::Unchanged(lhs));
             }
-            NovelAtomLHS { .. } | NovelDelimiterLHS => {
+            NovelAtomLHS { .. } | NovelDelimiterLHS { .. } => {
                 let lhs = v.lhs_syntax.unwrap();
                 lhs.set_change(ChangeKind::Novel);
             }
-            NovelAtomRHS { .. } | NovelDelimiterRHS => {
+            NovelAtomRHS { .. } | NovelDelimiterRHS { .. } => {
                 let rhs = v.rhs_syntax.unwrap();
                 rhs.set_change(ChangeKind::Novel);
             }
@@ -535,8 +543,8 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                NovelDelimiterLHS,
-                NovelDelimiterRHS,
+                NovelDelimiterLHS { contiguous: false },
+                NovelDelimiterRHS { contiguous: false },
                 UnchangedNode,
                 UnchangedNode
             ],
