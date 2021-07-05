@@ -7,7 +7,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use typed_arena::Arena;
 
-use crate::lines::NewlinePositions;
+use crate::lines::{LineNumber, NewlinePositions};
 use crate::positions::SingleLineSpan;
 use ChangeKind::*;
 use Syntax::*;
@@ -183,6 +183,14 @@ impl<'a> Syntax<'a> {
             List { next, .. } => next.get(),
             Atom { next, .. } => next.get(),
         }
+    }
+
+    pub fn last_line(&self) -> Option<LineNumber> {
+        let position = match self {
+            List { close_position, .. } => close_position,
+            Atom { position, .. } => position,
+        };
+        position.last().map(|lp| lp.line)
     }
 
     pub fn next_on_same_line(&self) -> bool {

@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+use crate::lines::LineNumber;
 use crate::syntax::{ChangeKind, Syntax};
 use rustc_hash::{FxHashMap, FxHashSet};
 use Edge::*;
@@ -8,7 +9,9 @@ use Edge::*;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Vertex<'a> {
     lhs_syntax: Option<&'a Syntax<'a>>,
+    lhs_prev_novel: Option<LineNumber>,
     rhs_syntax: Option<&'a Syntax<'a>>,
+    rhs_prev_novel: Option<LineNumber>,
 }
 
 impl<'a> Vertex<'a> {
@@ -84,10 +87,12 @@ fn shortest_path(start: Vertex) -> Vec<(Edge, Vertex)> {
     let mut visited = FxHashSet::default();
     let mut predecessors: FxHashMap<Vertex, (i64, Edge, Vertex)> = FxHashMap::default();
 
+    let end;
     loop {
         match heap.pop() {
             Some(OrdVertex { distance, v }) => {
                 if v.is_end() {
+                    end = v;
                     break;
                 }
 
@@ -122,10 +127,7 @@ fn shortest_path(start: Vertex) -> Vec<(Edge, Vertex)> {
         }
     }
 
-    let mut current = Vertex {
-        lhs_syntax: None,
-        rhs_syntax: None,
-    };
+    let mut current = end;
     let mut res: Vec<(Edge, Vertex)> = vec![];
     loop {
         match predecessors.remove(&current) {
@@ -153,7 +155,9 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
                 UnchangedNode,
                 Vertex {
                     lhs_syntax: lhs_syntax.get_next(),
+                    lhs_prev_novel: None,
                     rhs_syntax: rhs_syntax.get_next(),
+                    rhs_prev_novel: None,
                 },
             ));
         }
@@ -188,7 +192,9 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
                     UnchangedDelimiter,
                     Vertex {
                         lhs_syntax: lhs_next,
+                        lhs_prev_novel: None,
                         rhs_syntax: rhs_next,
+                        rhs_prev_novel: None,
                     },
                 ));
             }
@@ -203,23 +209,28 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
                     NovelAtomLHS,
                     Vertex {
                         lhs_syntax: lhs_syntax.get_next(),
+                        lhs_prev_novel: lhs_syntax.last_line(),
                         rhs_syntax: v.rhs_syntax,
+                        rhs_prev_novel: v.rhs_prev_novel,
                     },
                 ));
             }
             // Step into this partially/fully novel list.
             Syntax::List { children, .. } => {
-                let lhs_next = if children.is_empty() {
-                    lhs_syntax.get_next()
+                let (lhs_next, lhs_prev_novel) = if children.is_empty() {
+                    (lhs_syntax.get_next(), v.lhs_prev_novel)
                 } else {
-                    Some(children[0])
+                    // `lhs_prev_novel` only tracks nodes at the same level.
+                    (Some(children[0]), None)
                 };
 
                 res.push((
                     NovelDelimiterLHS,
                     Vertex {
                         lhs_syntax: lhs_next,
+                        lhs_prev_novel,
                         rhs_syntax: v.rhs_syntax,
+                        rhs_prev_novel: v.rhs_prev_novel,
                     },
                 ));
             }
@@ -234,23 +245,28 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
                     NovelAtomRHS,
                     Vertex {
                         lhs_syntax: v.lhs_syntax,
+                        lhs_prev_novel: v.lhs_prev_novel,
                         rhs_syntax: rhs_syntax.get_next(),
+                        rhs_prev_novel: rhs_syntax.last_line(),
                     },
                 ));
             }
             // Step into this partially/fully novel list.
             Syntax::List { children, .. } => {
-                let rhs_next = if children.is_empty() {
-                    rhs_syntax.get_next()
+                let (rhs_next, rhs_prev_novel) = if children.is_empty() {
+                    (rhs_syntax.get_next(), v.rhs_prev_novel)
                 } else {
-                    Some(children[0])
+                    // `rhs_prev_novel` only tracks nodes at the same level.
+                    (Some(children[0]), None)
                 };
 
                 res.push((
                     NovelDelimiterRHS,
                     Vertex {
                         lhs_syntax: v.lhs_syntax,
+                        lhs_prev_novel: v.lhs_prev_novel,
                         rhs_syntax: rhs_next,
+                        rhs_prev_novel,
                     },
                 ));
             }
@@ -263,7 +279,9 @@ fn neighbours<'a>(v: &Vertex<'a>) -> Vec<(Edge, Vertex<'a>)> {
 pub fn mark_syntax<'a>(lhs_syntax: Option<&'a Syntax<'a>>, rhs_syntax: Option<&'a Syntax<'a>>) {
     let start = Vertex {
         lhs_syntax,
+        lhs_prev_novel: None,
         rhs_syntax,
+        rhs_prev_novel: None,
     };
     let route = shortest_path(start);
     mark_route(&route);
@@ -351,7 +369,9 @@ mod tests {
 
         let start = Vertex {
             lhs_syntax: Some(lhs),
+            lhs_prev_novel: None,
             rhs_syntax: Some(rhs),
+            rhs_prev_novel: None,
         };
         let route = shortest_path(start);
 
@@ -390,7 +410,9 @@ mod tests {
 
         let start = Vertex {
             lhs_syntax: lhs.get(0).map(|n| *n),
+            lhs_prev_novel: None,
             rhs_syntax: rhs.get(0).map(|n| *n),
+            rhs_prev_novel: None,
         };
         let route = shortest_path(start);
 
@@ -427,7 +449,9 @@ mod tests {
 
         let start = Vertex {
             lhs_syntax: lhs.get(0).map(|n| *n),
+            lhs_prev_novel: None,
             rhs_syntax: rhs.get(0).map(|n| *n),
+            rhs_prev_novel: None,
         };
         let route = shortest_path(start);
 
@@ -484,7 +508,9 @@ mod tests {
 
         let start = Vertex {
             lhs_syntax: lhs.get(0).map(|n| *n),
+            lhs_prev_novel: None,
             rhs_syntax: rhs.get(0).map(|n| *n),
+            rhs_prev_novel: None,
         };
         let route = shortest_path(start);
 
@@ -520,7 +546,9 @@ mod tests {
 
         let start = Vertex {
             lhs_syntax: lhs.get(0).map(|n| *n),
+            lhs_prev_novel: None,
             rhs_syntax: rhs.get(0).map(|n| *n),
+            rhs_prev_novel: None,
         };
         let route = shortest_path(start);
 
