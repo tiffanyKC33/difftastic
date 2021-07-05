@@ -9,6 +9,9 @@ use Edge::*;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Vertex<'a> {
     lhs_syntax: Option<&'a Syntax<'a>>,
+    // TODO: rather than forking when we see prev novel (more nodes in
+    // memory, bigger nodes), just always consider nodes on the same
+    // line to be 'closer' (lower cost).
     lhs_prev_novel: Option<LineNumber>,
     rhs_syntax: Option<&'a Syntax<'a>>,
     rhs_prev_novel: Option<LineNumber>,
